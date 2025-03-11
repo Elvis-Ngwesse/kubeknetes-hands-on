@@ -15,8 +15,3 @@ kubectl config set-credentials john --client-certificate=john.crt --client-key=j
 kubectl config set-context john-context --cluster=minikube --user=john --namespace=ops
 kubectl config use-context john-context
 
-## Get contexts ##
-kubectl config get-contexts
-kubectl config use-context minikube
-kubectl config current-context
-

@@ -22,8 +22,17 @@ kubectl apply -f access-control/role-based/rolebinding.yaml
 kubectl get roles -n ops
 kubectl get rolebindings -n ops
 
+## Stop/Start minikube ##
+minikube stop
+minikube start
+
+
 ## Test Access ##
 kubectl auth can-i list pods --as elvisngwesse -n ops
 kubectl auth can-i delete pods --as elvisngwesse -n ops
 kubectl auth can-i get pods --as elvisngwesse -n ops
 kubectl delete pod [pod-name] -n ops
+
+## Delete ##
+kubectl delete rolebinding rolebinding-object -n ops
+kubectl delete role role-object -n ops
