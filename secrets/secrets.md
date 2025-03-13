@@ -2,7 +2,7 @@
 ## Secrets ##
 To use Kubernetes Secrets with an API version, you'll typically interact with the Secret resource, which stores sensitive data such as passwords, OAuth tokens, SSH keys, etc. Secrets in Kubernetes are stored and accessed in base64 encoding, and you can create, view, and use them in your Kubernetes configurations.
 
-## Create tem key ##
+## Create ssh key ##
 ssh-keygen -t rsa -b 2048 -f /tmp/temp_ssh_key -N ""
 Private-key: /tmp/temp_ssh_key
 public-key: /tmp/temp_ssh_key.pub

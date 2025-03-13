@@ -1,0 +1,30 @@
+[
+    {
+      "apiVersion": "authorization.k8s.io/v1beta1",
+      "kind": "Policy",
+      "metadata": {
+        "name": "abac-policy"
+      },
+      "spec": {
+        "user": "elvisngwesse",
+        "verb": "create",
+        "resource": "pods",
+        "namespace": "default"
+      }
+    },
+
+    {
+        "apiVersion": "authorization.k8s.io/v1beta1",
+        "kind": "Policy",
+        "metadata": {
+          "name": "abac-policy"
+        },
+        "spec": {
+          "user": "elvisngwesse",
+          "verb": "list",
+          "resource": "pods",
+          "namespace": "default"
+        }
+      }
+]
+  

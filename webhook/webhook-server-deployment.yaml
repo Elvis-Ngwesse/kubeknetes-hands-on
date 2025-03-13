@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webhook-server
+  template:
+    metadata:
+      labels:
+        app: webhook-server
+    spec:
+      containers:
+        - name: webhook-server
+          image: dockerelvis/webhook-server:latest
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: webhook-server-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook-server
+spec:
+  ports:
+    - port: 443
+      targetPort: 8080
+  selector:
+    app: webhook-server
