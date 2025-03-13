@@ -39,3 +39,37 @@ source venv/bin/activate
 ## install dependencies ##
 pip install -r requirements.txt
 
+## Architechture ##
+
+- Master Node
+	- API Server
+		- Authentication using headers
+		- Authorization based on RBAC rules
+		- Admission
+		* Informs Kubelet on workload to execute
+
+	- Scheduler
+		- Resources
+		- Taints
+		- Toleration
+		- Node affinity
+		* Schedules pode on node
+		* Sends back info to api server
+	- Control Manager
+		- Replication controller
+		- Deamon-set controller
+		- Statefull set controller
+	- ETCD
+		- Stores all info and config of cluster
+		- Cluster state is maintained in ETCD
+		- API server updates ETCD
+
+- Worker Node
+	- Kubelet
+		- Request work load from api server
+		- Uses container runtime such as docker to run container based on config
+		- 
+	- Kube-proxy
+		- Manages all network communication
+
+
