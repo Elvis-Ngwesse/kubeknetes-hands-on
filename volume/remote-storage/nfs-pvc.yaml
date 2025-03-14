@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: nfs-pvc-01
+  namespace: test
+  annotations:
+    example.com/annotation: "nginx"
+spec:
+  storageClassName: "nfs"
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+    limits:
+      storage: 2Gi
+  volumeMode: Filesystem
+  # Removed selector, as it's not supported by the NFS provisioner
+  dataSource:
+    name: backup-01  # Ensure this is a valid snapshot or PVC if needed
+    kind: Snapshot  # If using a snapshot, this should be valid
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: nfs-pvc-02
+  namespace: test
+  annotations:
+    example.com/annotation: "nginx"
+spec:
+  storageClassName: "nfs"
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+    limits:
+      storage: 3Gi
+  volumeMode: Filesystem  # Typically Filesystem for NFS
+  # Removed selector, as it's not supported by the NFS provisioner
+  dataSource:
+    name: backup-02  # Ensure this is a valid snapshot or PVC if needed
+    kind: PersistentVolumeClaim  # If referencing an existing PVC

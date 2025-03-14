@@ -1,0 +1,22 @@
+nameOverride: "nfs-server"
+fullnameOverride: "nfs-server-pod"
+
+nfs:
+  server: true
+  serverExport: "/mnt/nfs_share *(rw,sync,no_subtree_check)"
+  serverIP: "10.110.193.217"
+  options: "-o fsid=0 -o no_root_squash"
+
+persistence:
+  enabled: true
+  size: "10Gi"
+  storageClass: "standard"
+  accessMode: "ReadWriteMany"
+
+resources:
+  requests:
+    memory: "2Gi"
+    cpu: "1"
+  limits:
+    memory: "5Gi"
+    cpu: "4"
