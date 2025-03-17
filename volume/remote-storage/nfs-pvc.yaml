@@ -20,10 +20,9 @@ spec:
     limits:
       storage: 2Gi
   volumeMode: Filesystem
-  # Removed selector, as it's not supported by the NFS provisioner
   dataSource:
-    name: backup-01  # Ensure this is a valid snapshot or PVC if needed
-    kind: Snapshot  # If using a snapshot, this should be valid
+    name: backup-01
+    kind: Snapshot 
 ---
 kind: PersistentVolumeClaim
 apiVersion: v1
@@ -41,8 +40,7 @@ spec:
       storage: 1Gi
     limits:
       storage: 3Gi
-  volumeMode: Filesystem  # Typically Filesystem for NFS
-  # Removed selector, as it's not supported by the NFS provisioner
+  volumeMode: Filesystem
   dataSource:
-    name: backup-02  # Ensure this is a valid snapshot or PVC if needed
-    kind: PersistentVolumeClaim  # If referencing an existing PVC
+    name: backup-02
+    kind: PersistentVolumeClaim

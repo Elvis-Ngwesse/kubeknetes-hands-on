@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: busybox-container-02
+spec:
+  containers:
+    - name: busybox-container02
+      image: busybox
+      command: ["/bin/sh", "-c", "while true; do echo \"Hello, NFS! The time is $(date) for busybox-container-02\" >> /mnt/nfs_share/data2.txt; sleep 5; done"]
+      volumeMounts:
+        - mountPath: /mnt/nfs_share
+          name: nfs-volume
+  volumes:
+    - name: nfs-volume
+      nfs:
+        server: 10.244.0.3 # Replace with your NFS server IP
+        path: /mnt/nfs_share
