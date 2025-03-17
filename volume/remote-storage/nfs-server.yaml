@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-server
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nfs-server
+  template:
+    metadata:
+      labels:
+        app: nfs-server
+    spec:
+      containers:
+        - name: nfs-server
+          image: quay.io/kubernetes_incubator/nfs-provisioner:v2.3.0
+          volumeMounts:
+            - mountPath: /etc/exports
+              name: nfs-exports
+              subPath: exports
+            - mountPath: /nfs/data
+              name: nfs-data
+      volumes:
+        - name: nfs-exports
+          configMap:
+            name: nfs-server-config
+        - name: nfs-data
+          persistentVolumeClaim:
+            claimName: nfs-pvc

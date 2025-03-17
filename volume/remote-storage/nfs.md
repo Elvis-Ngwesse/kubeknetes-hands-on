@@ -1,21 +1,42 @@
-## install nfs-server ##
-helm repo add stable https://charts.helm.sh/stable
-helm repo update
-helm show values stable/nfs-server-provisioner > volume/remote-storage/values.yaml
-helm install nfs-server stable/nfs-server-provisioner -f volume/remote-storage/values.yaml
+## Create a Persistent Volume (PV) for the Export Directory ##
+First, define a persistent volume for your NFS server export directory. You can mount a directory from your NFS provisioner or Kubernetes node where the data will be stored
 
-## Get nfs pv/pvc volumes ##
-kubectl get pvc
-kubectl get pvc
+kubectl apply -f volume/remote-storage/pv-nfs-server.yaml
 
-This confirms that the Helm chart successfully created both a PVC and a PV (dynamically provisioned) based on my nfs-values.yaml configuration. The PVC is currently bound to the PV, and the volume is ready for use
+## Create a Persistent Volume Claim (PVC) for Accessing the NFS Server Directory ##
+You will then need to create a PersistentVolumeClaim (PVC) to access this NFS share from your Kubernetes deployment
+
+kubectl apply -f volume/remote-storage/pvc-nfs-server.yaml
+
+## Configure NFS Server Export Using ConfigMap ##
+In Kubernetes, you can configure the NFS server’s export settings using a ConfigMap. This would be required to define the export directory and its access permissions.
+In this ConfigMap, the exports field is where you configure the NFS export. Here, /nfs/data is the directory being shared, and (rw,sync,no_subtree_check) are options for client access.
+
+kubectl apply -f volume/remote-storage/configmap-nfs.yaml
+
+## create roles/binding ##
+kubectl apply -f volume/remote-storage/role.yaml
+kubectl apply -f volume/remote-storage/role-binding.yaml
+kubectl apply -f volume/remote-storage/cluster-role.yaml
+kubectl apply -f volume/remote-storage/cluster-binding.yaml
+
+
+## Deploy NFS Server with the ConfigMap ##
+Deploy the NFS server using a Kubernetes Deployment. Mount the above ConfigMap to the NFS server pod, so that the NFS server uses the export configurations.
+
+kubectl apply -f volume/remote-storage/nfs-server.yaml
+
+## Add permissions ##
+kubectl exec -it <nfs-server-pod> -- chown -R nobody:nobody /nfs/data
+kubectl exec -it <nfs-server-pod> -- chmod -R 755 /nfs/data
+kubectl logs <nfs-server-pod>
+
 
 ## Attach a pod to the pvc ##
-Create a Kubernetes pod that references the PVC (data-nfs-server-pod-0), which is already bound to the PV
-
 kubectl apply -f volume/remote-storage/busybox-pv-1.yaml
-kubectl apply -f volume/remote-storage/busybox-pv-2.yaml
 kubectl get pods busybox-container-01
+
+kubectl apply -f volume/remote-storage/busybox-pv-2.yaml
 kubectl get pods busybox-container-02
 
 ## Verify data in the pv ##
@@ -74,3 +95,9 @@ kubectl describe pvc nfs-pvc-02 -n test
 kubectl delete pvc --all -n test
 kubectl delete pv --all
 
+
+## Deburgging ##
+kubectl exec -it <nfs-server-pod> -- cat /etc/exports
+kubectl exec -it nfs-server-57485997c8-fbsxh -- ping nfs-server.default.svc.cluster.local
+kubectl exec -it nfs-server-57485997c8-fbsxh -- dig nfs-server.default.svc.cluster.local
+kubectl exec -it nfs-server-57485997c8-fbsxh -- nslookup nfs-server.default.svc.cluster.local

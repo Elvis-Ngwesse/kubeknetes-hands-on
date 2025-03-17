@@ -9,9 +9,9 @@ spec:
       command: ["/bin/sh", "-c", "while true; do echo \"Hello, NFS! The time is $(date) for busybox-container-02\" >> /mnt/nfs_share/data2.txt; sleep 5; done"]
       volumeMounts:
         - mountPath: /mnt/nfs_share
-          name: nfs-volume
+          name: nfs-storage
   volumes:
-    - name: nfs-volume
+    - name: nfs-storage
       nfs:
-        server: 10.244.0.3 # Replace with your NFS server IP
-        path: /mnt/nfs_share
+        server: nfs-server
+        path: /nfs/data
