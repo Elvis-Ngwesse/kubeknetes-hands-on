@@ -5,13 +5,15 @@ metadata:
   labels:
     app: nfs-server
 spec:
-  type: NodePort  
+  type: NodePort
   selector:
     app: nfs-server
   ports:
     - name: tcp-2049
       port: 2049
+      targetPort: 2049
       protocol: TCP
+      nodePort: 30049
     - name: udp-111
       port: 111
       protocol: UDP

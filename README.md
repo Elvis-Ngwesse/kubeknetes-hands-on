@@ -71,5 +71,3 @@ pip install -r requirements.txt
 		- 
 	- Kube-proxy
 		- Manages all network communication
-
-

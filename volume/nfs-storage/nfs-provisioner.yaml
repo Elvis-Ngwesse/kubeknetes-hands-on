@@ -28,11 +28,11 @@ spec:
             - name: PROVISIONER_NAME
               value: k8s-sigs.io/nfs-subdir-external-provisioner
             - name: NFS_SERVER
-              value: nfs-server
+              value: "10.100.22.73"  # Replace with the actual IP address of your NFS server
             - name: NFS_PATH
               value: /exports
       volumes:
         - name: nfs-client-root
           nfs:
-            server: nfs-server
+            server: 10.100.22.73 # Change this to the IP address of the NFS server
             path: /exports
