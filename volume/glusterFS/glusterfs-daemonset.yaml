@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dockerfile-config
+data:
+  Dockerfile: |
+    # Dockerfile contents go here
+    # Use an Ubuntu base image
+    FROM ubuntu:20.04
+
+    # Set non-interactive mode for apt-get to avoid any prompts
+    ENV DEBIAN_FRONTEND=noninteractive
+
+    # Install prerequisites
+    RUN apt-get update && \
+        apt-get install -y software-properties-common curl && \
+        apt-get clean
+
+    # Add the GlusterFS PPA repository
+    RUN add-apt-repository ppa:gluster/glusterfs-10
+
+    # Update apt repositories
+    RUN apt-get update
+
+    # Install GlusterFS server
+    RUN apt-get install -y glusterfs-server
+
+    # Expose ports for GlusterFS if required
+    EXPOSE 24007 24008 24009 24010
+
+    # Set up GlusterFS as the default command (no need to use systemctl in Docker)
+    CMD ["glusterd", "-N"]
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: docker-build-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: docker-build-container
+        image: docker:19.03.12
+        command:
+        - /bin/sh
+        - -c
+        - |
+          docker info  # Check Docker installation
+          mkdir -p /docker-build
+          cp /config/Dockerfile /docker-build/Dockerfile
+          cd /docker-build
+          docker build -t glusterfs-image:latest .
+        volumeMounts:
+        - name: dockerfile-volume
+          mountPath: /config
+        - name: docker-socket
+          mountPath: /var/run/docker.sock  # Mount the Docker socket
+      volumes:
+      - name: dockerfile-volume
+        configMap:
+          name: dockerfile-config
+      - name: docker-socket
+        hostPath:
+          path: /var/run/docker.sock  # Mount Docker socket from the host
+          type: Socket
+      restartPolicy: Never
+  backoffLimit: 4
+
+
+
+
+
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: glusterfs-service
+# spec:
+#   selector:
+#     app: glusterfs
+#   ports:
+#     - protocol: TCP
+#       port: 24007 
+#       targetPort: 24007 
+#   type: NodePort
+
+# ---
+# apiVersion: apps/v1
+# kind: DaemonSet
+# metadata:
+#   name: glusterfs
+# spec:
+#   selector:
+#     matchLabels:
+#       app: glusterfs
+#   template:
+#     metadata:
+#       labels:
+#         app: glusterfs
+#     spec:
+#       initContainers:
+#       - name: check-image
+#         image: busybox
+#         command: ["sh", "-c", "until docker pull my-glusterfs-image:latest; do echo 'Waiting for image...'; sleep 5; done"]
+#         volumeMounts:
+#         - name: docker-socket
+#           mountPath: /var/run/docker.sock
+#       containers:
+#       - name: glusterfs
+#         image: my-glusterfs-image:latest
+#         ports:
+#         - containerPort: 24007
+#         - containerPort: 24008
+#         volumeMounts:
+#         - name: glusterfs-data
+#           mountPath: /mnt/glusterfs
+#       volumes:
+#       - name: glusterfs-data
+#         hostPath:
+#           path: /mnt/glusterfs
+#           type: DirectoryOrCreate
+#       - name: docker-socket
+#         hostPath:
+#           path: /var/run/docker.sock
+#           type: Socket
