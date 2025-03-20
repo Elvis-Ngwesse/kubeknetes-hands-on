@@ -1,4 +1,15 @@
 apiVersion: v1
+kind: Secret
+metadata:
+  name: docker-credentials
+type: Opaque
+data:
+  docker-username: ZG9ja2VyZWx2aXM=
+  docker-password: U2ltb24xOTc4OTAjwqkj4oKsI+KCrCM= 
+
+---
+
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: dockerfile-config
@@ -46,26 +57,50 @@ spec:
         - /bin/sh
         - -c
         - |
-          docker info  # Check Docker installation
+          echo "Logging into Docker..."
+          echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+
+          echo "Checking Docker installation..."
+          docker info
+
+          echo "Building the image..."
           mkdir -p /docker-build
           cp /config/Dockerfile /docker-build/Dockerfile
           cd /docker-build
-          docker build -t glusterfs-image:latest .
+          docker build -t $DOCKER_USERNAME/glusterfs-image:latest .
+
+          echo "Pushing the image to Docker Hub..."
+          docker push $DOCKER_USERNAME/glusterfs-image:latest
+
+          echo "Done"
+        env:
+        - name: DOCKER_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: docker-credentials
+              key: docker-username
+        - name: DOCKER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: docker-credentials
+              key: docker-password
         volumeMounts:
         - name: dockerfile-volume
           mountPath: /config
         - name: docker-socket
-          mountPath: /var/run/docker.sock  # Mount the Docker socket
+          mountPath: /var/run/docker.sock
       volumes:
       - name: dockerfile-volume
         configMap:
           name: dockerfile-config
       - name: docker-socket
         hostPath:
-          path: /var/run/docker.sock  # Mount Docker socket from the host
+          path: /var/run/docker.sock
           type: Socket
       restartPolicy: Never
   backoffLimit: 4
+
+
 
 
 
