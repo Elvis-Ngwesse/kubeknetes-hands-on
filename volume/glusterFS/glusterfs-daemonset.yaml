@@ -1,3 +1,35 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: job-access-role
+  namespace: default  # Make sure this matches your namespace
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: job-access-rolebinding
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: default  # This binds the role to the default service account
+    namespace: default
+roleRef:
+  kind: Role
+  name: job-access-role  # The name of the role to bind
+  apiGroup: rbac.authorization.k8s.io
+
+---
 apiVersion: v1
 kind: Secret
 metadata:
@@ -5,7 +37,7 @@ metadata:
 type: Opaque
 data:
   docker-username: ZG9ja2VyZWx2aXM=
-  docker-password: U2ltb24xOTc4OTAjwqkj4oKsI+KCrCM= 
+  docker-password: U2ltb24xOTc4OTAjwqkj4oKsI+KCrCM=
 
 ---
 
@@ -22,9 +54,9 @@ data:
     # Set non-interactive mode for apt-get to avoid any prompts
     ENV DEBIAN_FRONTEND=noninteractive
 
-    # Install prerequisites
+    # Install prerequisites including ping (iputils-ping)
     RUN apt-get update && \
-        apt-get install -y software-properties-common curl && \
+        apt-get install -y software-properties-common curl iputils-ping && \
         apt-get clean
 
     # Add the GlusterFS PPA repository
@@ -42,7 +74,9 @@ data:
     # Set up GlusterFS as the default command (no need to use systemctl in Docker)
     CMD ["glusterd", "-N"]
 
+
 ---
+
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -100,62 +134,118 @@ spec:
       restartPolicy: Never
   backoffLimit: 4
 
+---
 
+apiVersion: v1
+kind: Service
+metadata:
+  name: glusterfs-service
+spec:
+  selector:
+    app: glusterfs
+  ports:
+    - protocol: TCP
+      port: 24007
+      targetPort: 24007
+  type: NodePort
 
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: glusterfs
+spec:
+  serviceName: "glusterfs-service"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: glusterfs
+  template:
+    metadata:
+      labels:
+        app: glusterfs
+    spec:
+      initContainers:
+      - name: wait-for-job
+        image: bitnami/kubectl:latest
+        command:
+          - "/bin/sh"
+          - "-c"
+          - |
+            # Wait until the job is successful
+            until kubectl get jobs/docker-build-job -o=jsonpath='{.status.succeeded}' | grep -q '1'; do
+              echo "Waiting for job to succeed..."
+              sleep 5
+            done
+            echo "Job is successful, proceeding with the pod task."
+      - name: set-permissions
+        image: busybox:latest
+        command:
+          - "/bin/sh"
+          - "-c"
+          - |
+            # Set executable permissions for all users on the directory
+            chmod +x /mnt/glusterfs/$(hostname)
+            echo "Permissions updated for /mnt/glusterfs/$(hostname)"
+        volumeMounts:
+        - name: glusterfs-data
+          mountPath: /mnt/glusterfs
+        - name: pod-name-dir
+          mountPath: /mnt/glusterfs/$(hostname)
+      containers:
+      - name: glusterfs
+        image: dockerelvis/glusterfs-image:latest
+        ports:
+        - containerPort: 24007
+        - containerPort: 24008
+        volumeMounts:
+        - name: glusterfs-data
+          mountPath: /mnt/glusterfs
+        - name: pod-name-dir
+          mountPath: /mnt/glusterfs/$(hostname)
+      volumes:
+      - name: glusterfs-data
+        hostPath:
+          path: /mnt/glusterfs
+          type: DirectoryOrCreate
+      - name: pod-name-dir
+        emptyDir: {}
+      - name: docker-socket
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket
 
+--- 
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: update-hosts-file-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: update-hosts-file
+        image: bitnami/kubectl:latest
+        securityContext:
+          privileged: true
+        command:
+          - "/bin/sh"
+          - "-c"
+          - |
+            # Wait until all 3 pods in the StatefulSet are running
+            until [ $(kubectl get pods -l app=glusterfs -o=jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' | wc -w) -eq 3 ]; do
+              echo "Waiting for all pods to be in Running state..."
+              sleep 5
+            done
+            echo "All pods are running, proceeding with updating /etc/hosts."
 
-
-
-# ---
-# apiVersion: v1
-# kind: Service
-# metadata:
-#   name: glusterfs-service
-# spec:
-#   selector:
-#     app: glusterfs
-#   ports:
-#     - protocol: TCP
-#       port: 24007 
-#       targetPort: 24007 
-#   type: NodePort
-
-# ---
-# apiVersion: apps/v1
-# kind: DaemonSet
-# metadata:
-#   name: glusterfs
-# spec:
-#   selector:
-#     matchLabels:
-#       app: glusterfs
-#   template:
-#     metadata:
-#       labels:
-#         app: glusterfs
-#     spec:
-#       initContainers:
-#       - name: check-image
-#         image: busybox
-#         command: ["sh", "-c", "until docker pull my-glusterfs-image:latest; do echo 'Waiting for image...'; sleep 5; done"]
-#         volumeMounts:
-#         - name: docker-socket
-#           mountPath: /var/run/docker.sock
-#       containers:
-#       - name: glusterfs
-#         image: my-glusterfs-image:latest
-#         ports:
-#         - containerPort: 24007
-#         - containerPort: 24008
-#         volumeMounts:
-#         - name: glusterfs-data
-#           mountPath: /mnt/glusterfs
-#       volumes:
-#       - name: glusterfs-data
-#         hostPath:
-#           path: /mnt/glusterfs
-#           type: DirectoryOrCreate
-#       - name: docker-socket
-#         hostPath:
-#           path: /var/run/docker.sock
-#           type: Socket
+            # Get the list of all pod names in the StatefulSet
+            PODS=$(kubectl get pods -l app=glusterfs -o=jsonpath='{.items[*].metadata.name}')
+            for POD in $PODS; do
+              POD_IP=$(kubectl get pod $POD -o=jsonpath='{.status.podIP}')
+              echo "$POD_IP $POD.glusterfs-service.default.svc.cluster.local $POD" >> /etc/hosts  # Add the pod IP and name to /etc/hosts
+            done
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 0  # Run as root user (UID 0)
+  backoffLimit: 4
