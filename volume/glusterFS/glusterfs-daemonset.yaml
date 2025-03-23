@@ -2,7 +2,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: job-access-role
-  namespace: default  # Make sure this matches your namespace
+  namespace: default
 rules:
   - apiGroups: [""]
     resources: ["pods"]
@@ -22,11 +22,11 @@ metadata:
   namespace: default
 subjects:
   - kind: ServiceAccount
-    name: default  # This binds the role to the default service account
+    name: default 
     namespace: default
 roleRef:
   kind: Role
-  name: job-access-role  # The name of the role to bind
+  name: job-access-role 
   apiGroup: rbac.authorization.k8s.io
 
 ---
@@ -40,7 +40,6 @@ data:
   docker-password: U2ltb24xOTc4OTAjwqkj4oKsI+KCrCM=
 
 ---
-
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -68,15 +67,21 @@ data:
     # Install GlusterFS server
     RUN apt-get install -y glusterfs-server
 
+    # Create the gluster user
+    RUN useradd -r -u 1001 glusteruser
+
+    # Set up and set permissions for the /mnt/glusterfs directory
+    RUN mkdir -p /mnt/glusterfs && \
+        chown -R glusteruser:glusteruser /mnt/glusterfs && \
+        chmod -R 755 /mnt/glusterfs
+
     # Expose ports for GlusterFS if required
     EXPOSE 24007 24008 24009 24010
 
     # Set up GlusterFS as the default command (no need to use systemctl in Docker)
     CMD ["glusterd", "-N"]
 
-
 ---
-
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -84,6 +89,15 @@ metadata:
 spec:
   template:
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: "kubernetes.io/hostname"
+                operator: In
+                values:
+                - minikube
       containers:
       - name: docker-build-container
         image: docker:19.03.12
@@ -132,10 +146,9 @@ spec:
           path: /var/run/docker.sock
           type: Socket
       restartPolicy: Never
-  backoffLimit: 4
+  backoffLimit: 2
 
 ---
-
 apiVersion: v1
 kind: Service
 metadata:
@@ -151,12 +164,10 @@ spec:
 
 ---
 apiVersion: apps/v1
-kind: StatefulSet
+kind: DaemonSet
 metadata:
   name: glusterfs
 spec:
-  serviceName: "glusterfs-service"
-  replicas: 3
   selector:
     matchLabels:
       app: glusterfs
@@ -165,6 +176,15 @@ spec:
       labels:
         app: glusterfs
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - minikube  # Ensure this does not schedule on a single node
       initContainers:
       - name: wait-for-job
         image: bitnami/kubectl:latest
@@ -178,20 +198,47 @@ spec:
               sleep 5
             done
             echo "Job is successful, proceeding with the pod task."
-      - name: set-permissions
-        image: busybox:latest
+      - name: create-glusterfs-brick
+        image: gluster/gluster-centos:latest
+        env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
         command:
-          - "/bin/sh"
+          - "/bin/bash"
           - "-c"
           - |
-            # Set executable permissions for all users on the directory
-            chmod +x /mnt/glusterfs/$(hostname)
-            echo "Permissions updated for /mnt/glusterfs/$(hostname)"
+            echo "Starting glusterd daemon..."
+            glusterd --no-daemon &
+
+            # Wait for glusterd to start
+            for i in {1..10}; do
+              if pgrep -x "glusterd" > /dev/null; then
+                echo "glusterd daemon started successfully."
+                break
+              fi
+              echo "Waiting for glusterd daemon to start... ($i/10)"
+              sleep 1
+            done
+
+            # Check if glusterd started successfully
+            if ! pgrep -x "glusterd" > /dev/null; then
+              echo "Failed to start glusterd daemon. Exiting."
+              exit 1
+            fi
+
+            # Define the brick directory dynamically using NODE_NAME
+            BRICK_DIR="/mnt/glusterfs/brick-${NODE_NAME}"
+            mkdir -p $BRICK_DIR
+            echo "Creating GlusterFS brick at $BRICK_DIR"
+
+            # Print the NODE_NAME
+            echo "This pod is running on node: $NODE_NAME"
+
         volumeMounts:
-        - name: glusterfs-data
-          mountPath: /mnt/glusterfs
-        - name: pod-name-dir
-          mountPath: /mnt/glusterfs/$(hostname)
+          - name: glusterfs-data
+            mountPath: /mnt/glusterfs
       containers:
       - name: glusterfs
         image: dockerelvis/glusterfs-image:latest
@@ -201,51 +248,24 @@ spec:
         volumeMounts:
         - name: glusterfs-data
           mountPath: /mnt/glusterfs
-        - name: pod-name-dir
-          mountPath: /mnt/glusterfs/$(hostname)
+        livenessProbe:
+          tcpSocket:
+            port: 24007
+          initialDelaySeconds: 60 
+          periodSeconds: 10
+          failureThreshold: 3 
+        readinessProbe:
+          tcpSocket:
+            port: 24007
+          initialDelaySeconds: 30 
+          periodSeconds: 5
+          failureThreshold: 3
       volumes:
       - name: glusterfs-data
         hostPath:
-          path: /mnt/glusterfs
-          type: DirectoryOrCreate
-      - name: pod-name-dir
-        emptyDir: {}
+          path: /glusterfs-mount  
+          type: DirectoryOrCreate 
       - name: docker-socket
         hostPath:
           path: /var/run/docker.sock
           type: Socket
-
---- 
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: update-hosts-file-job
-spec:
-  template:
-    spec:
-      containers:
-      - name: update-hosts-file
-        image: bitnami/kubectl:latest
-        securityContext:
-          privileged: true
-        command:
-          - "/bin/sh"
-          - "-c"
-          - |
-            # Wait until all 3 pods in the StatefulSet are running
-            until [ $(kubectl get pods -l app=glusterfs -o=jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' | wc -w) -eq 3 ]; do
-              echo "Waiting for all pods to be in Running state..."
-              sleep 5
-            done
-            echo "All pods are running, proceeding with updating /etc/hosts."
-
-            # Get the list of all pod names in the StatefulSet
-            PODS=$(kubectl get pods -l app=glusterfs -o=jsonpath='{.items[*].metadata.name}')
-            for POD in $PODS; do
-              POD_IP=$(kubectl get pod $POD -o=jsonpath='{.status.podIP}')
-              echo "$POD_IP $POD.glusterfs-service.default.svc.cluster.local $POD" >> /etc/hosts  # Add the pod IP and name to /etc/hosts
-            done
-      restartPolicy: Never
-      securityContext:
-        runAsUser: 0  # Run as root user (UID 0)
-  backoffLimit: 4

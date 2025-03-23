@@ -3,6 +3,20 @@
 minikube start
 minikube delete
 *********************
+## Multi-Node ##
+minikube start --nodes 3
+
+minikube stop
+minikube delete --all
+
+kubectl get nodes
+
+minikube ssh
+minikube ssh --node=minikube-m02
+minikube ssh --node=minikube-m03
+
+cat /etc/os-release
+
 
 ## Deploy nginx containers ##
 helm repo add bitnami https://charts.bitnami.com/bitnami
