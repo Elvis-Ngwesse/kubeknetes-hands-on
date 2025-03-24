@@ -2,72 +2,12 @@
 ## GlusterFS ##
 Using a DaemonSet ensures that GlusterFS is deployed on every node in the cluster, which is a better practice than using a StatefulSet in some case
 
-## Base 64 encode ##
-echo -n "docker-username" | base64
-echo -n "docker-password" | base64
-
-## Create GlusterFS service ##
-kubectl apply -f volume/glusterFS/glusterfs-daemonset.yaml
-
-## Verify service status ##
-kubectl exec -it <pod-name> -c glusterfs -- /bin/bash
-glusterfsd --version
-ps aux | grep glusterd
-gluster volume status
-
-## Create brick ##
-To create a brick for GlusterFS in your Minikube environment, you'll need to set up GlusterFS to create a volume, and a "brick" is essentially a directory on a GlusterFS node that acts as the storage backend for a volume
-
-## Verify brick ##
-kubectl exec -it <pod-name> -c glusterfs -- /bin/bash
-ls /mnt/glusterfs/
-
 ## Idendify file system ##
 df -T
 lsblk -f
 
-## Print IP and Hostnames ##
-kubectl get pods -l app=glusterfs -o=custom-columns="IP:.status.podIP, NAME:.metadata.name"
-
-## Edit host files ##
-- login to pods, add IP and Hostname of other pod on their respective hosts files
-echo "10.244.1.13   glusterfs-msbr9" >> /etc/hosts
-echo "10.244.2.32   glusterfs-vvrcx" >> /etc/hosts
-
-## Pair both clusters ##
-- login to pod and pair both pods
-gluster peer probe glusterfs-msbr9
-gluster peer status
-
-## Create the volume ##
-
-gluster volume create myvolume replica 2 \
-  glusterfs-msbr9:/mnt/glusterfs/glusterfs-msbr9 \
-  glusterfs-vvrcx:/mnt/glusterfs/glusterfs-vvrcx \
-  force
-
-
-
-## Start the volume ##
-kubectl exec glusterfs-0 -c glusterfs -- gluster volume start myvolume
-
-
-
-
-
-
-brick-minikube-m03-glusterfs-fh7h5
-
-
-
-gluster volume create gv0 replica 2 transport tcp \
-              "glusterfs-8w2pc:/mnt/glusterfs/brick-minikube-m02-glusterfs-8w2pc" \
-              "glusterfs-fh7h5:/mnt/glusterfs/brick-minikube-m03-glusterfs-fh7h5" \
-              force
-
-
-            
-sudo apt update
+## Run GlusterFS cluster on all 3 nodes ##        
+sudo apt update 
 sudo apt install -y software-properties-common
 sudo add-apt-repository ppa:gluster/glusterfs-9
 sudo apt update
@@ -76,37 +16,106 @@ sudo systemctl start glusterd
 sudo systemctl enable glusterd
 sudo systemctl status glusterd
 
-
-
-sudo mkdir -p /gluster/brick1
-sudo chown -R gluster:gluster /gluster/brick1
-
-sudo mkdir -p /gluster/brick2
-sudo chown -R gluster:gluster /gluster/brick2
-
+## Pair nodes ##
+## Only on Controle-Plane ##
+- login to minikube master
 sudo gluster peer probe minikube-m02
+sudo gluster peer probe minikube-m03
+sudo gluster peer status
 
-sudo gluster volume create myvolume replica 2 transport tcp \
-    minikube-m02:/gluster/brick1 \
-    minikube-m03:/gluster/brick2 force
+## Create volume dir ##
+## On all 3 nodes ##
+sudo mkdir -p /gluster/volume
+sudo chown -R gluster:gluster /gluster/volume
 
-sudo gluster volume start myvolume
-sudo gluster volume status myvolume
+## Setup a Gluster volume with two replicas and one arbiter ##
+## Only on Controle-Plane ##
+sudo gluster volume create k8s-volume replica 2 arbiter 1 transport tcp \
+  minikube-m03:/gluster/volume \
+  minikube-m02:/gluster/volume \
+  minikube:/gluster/volume \
+  force
+sudo gluster volume start k8s-volume
+sudo gluster volume status k8s-volume
 
-Create GlusterFS Endpoints
+Gluster process                             TCP Port  RDMA Port  Online  Pid
+------------------------------------------------------------------------------
+Brick minikube-m03:/gluster/volume          59245     0          Y       7242
+Brick minikube-m02:/gluster/volume          55541     0          Y       7280
+Brick minikube:/gluster/volume              59274     0          Y       8697
+Self-heal Daemon on localhost               N/A       N/A        Y       8714
+Self-heal Daemon on minikube-m03            N/A       N/A        Y       7259
+Self-heal Daemon on minikube-m02            N/A       N/A        Y       7297
+
+Task Status of Volume k8s-volume
+------------------------------------------------------------------------------
+There are no active volume tasks
+
+## Info ##
+The Arbiter node is a node that does not replicate data. Instead of data, it saves metadata of files. We use it to prevent storage split-brain with two replicas only
+
+sudo gluster volume info k8s-volume
+
+Volume Name: k8s-volume
+Type: Replicate
+Volume ID: 47f77310-8ef2-49d0-87c0-c6e6ffd2421d
+Status: Started
+Snapshot Count: 0
+Number of Bricks: 1 x (2 + 1) = 3
+Transport-type: tcp
+Bricks:
+Brick1: minikube-m03:/gluster/volume
+Brick2: minikube-m02:/gluster/volume
+Brick3: minikube:/gluster/volume (arbiter)
+Options Reconfigured:
+cluster.granular-entry-heal: on
+storage.fips-mode-rchecksum: on
+transport.address-family: inet
+nfs.disable: on
+performance.client-io-threads: off
+
+## Prepare Kubernetes worker nodes ##
+To enable Kubernetes workers to connect and use GlusterFS volume, you need to install glusterfs-client in WORKER nodes.
+
+sudo apt install glusterfs-client
+
+## Discovering GlusterFS in Kubernetes ##
+GlusterFS cluster should be discovered in the Kubernetes cluster. To do that, 
+you need to add an Endpoints object points to the servers of the GlusterFS cluster
+
+kubectl get nodes -o wide (Edit ip addresses)
 kubectl apply -f volume/glusterFS/glusterfs-endpoints.yaml
+kubectl get endpoints
+kubectl get endpoints glusterfs-cluster -o yaml
 
 
-Create pvc and pv
+## Connecting to GlusterFS directly with Pod ##
+kubectl apply -f volume/glusterFS/gluster-pod-direct-connect.yaml
+
+## Connecting using the PersistentVolume ##
 kubectl apply -f volume/glusterFS/gluster-pvc-pv.yaml
+kubectl apply -f volume/glusterFS/gluster-pod-pvc-connect.yaml
+
+## Check ports are open ##
+sudo ss -tuln | grep 24007
+sudo ss -tuln | grep 24008
+
+## Check if server is listenning on port 1 ##
+curl 192.168.49.2:1
+
+## Open port 1 ##
+sudo apt-get update
+sudo apt-get install ufw
+sudo ufw status
+sudo ufw enable
+
+sudo ufw allow 1/tcp
+sudo ufw allow 24008/tcp
+
+sudo ufw reload
+sudo ufw disable
 
 
-Create pod
-kubectl apply -f volume/glusterFS/gluster-pod.yaml
+sudo systemctl restart glusterd
 
-
-Verify mount in pod
-kubectl exec -it my-gluster-pod -- df -h
-
-kubectl exec -it my-gluster-pod -- cat /mnt/gluster/logs/debug.log
-
+nc -zv 192.168.49.2 24007

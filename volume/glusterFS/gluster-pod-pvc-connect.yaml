@@ -1,0 +1,36 @@
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-gluster-pod
+  labels:
+    app.kubernetes.io/name: alpine
+    app.kubernetes.io/part-of: kubernetes-complete-reference
+    app.kubernetes.io/created-by: ssbostan
+spec:
+  containers:
+    - name: busybox
+      image: busybox
+      command:
+        - sh
+        - -c
+        - |
+          echo "Starting log generation process..."
+          
+          # Create the directory for logs if it doesn't exist
+          mkdir -p /gluster/logs
+          echo "$(date) - Directory for logs created."
+          
+          # Start writing logs every minute
+          while true; do
+            echo "$(date) - Dynamic log entry" >> /gluster/logs/direct_connect_logs.txt
+            echo "$(date) - Logged to direct_connect_logs.txt"
+            sleep 60  # Log every 60 seconds (1 minute)
+          done
+      volumeMounts:
+        - name: glusterfs-volume
+          mountPath: /gluster
+  volumes:
+    - name: glusterfs-volume
+      persistentVolumeClaim:
+        claimName: glusterfs-claim  # Reference the PVC here
