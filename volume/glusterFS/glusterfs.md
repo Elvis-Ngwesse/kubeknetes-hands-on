@@ -6,6 +6,12 @@ Using a DaemonSet ensures that GlusterFS is deployed on every node in the cluste
 df -T
 lsblk -f
 
+## Check ports are open ##
+sudo ufw allow 24007/tcp
+sudo ufw allow 24007/udp
+sudo ufw allow 24008/tcp
+sudo ufw allow 24008/udp
+
 ## Run GlusterFS cluster on all 3 nodes ##        
 sudo apt update 
 sudo apt install -y software-properties-common
@@ -95,27 +101,3 @@ kubectl apply -f volume/glusterFS/gluster-pod-direct-connect.yaml
 ## Connecting using the PersistentVolume ##
 kubectl apply -f volume/glusterFS/gluster-pvc-pv.yaml
 kubectl apply -f volume/glusterFS/gluster-pod-pvc-connect.yaml
-
-## Check ports are open ##
-sudo ss -tuln | grep 24007
-sudo ss -tuln | grep 24008
-
-## Check if server is listenning on port 1 ##
-curl 192.168.49.2:1
-
-## Open port 1 ##
-sudo apt-get update
-sudo apt-get install ufw
-sudo ufw status
-sudo ufw enable
-
-sudo ufw allow 1/tcp
-sudo ufw allow 24008/tcp
-
-sudo ufw reload
-sudo ufw disable
-
-
-sudo systemctl restart glusterd
-
-nc -zv 192.168.49.2 24007
